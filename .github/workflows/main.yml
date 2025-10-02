@@ -1,4 +1,4 @@
-name: React Docker Deploy
+name: Docker Build & Deploy via SSH
 
 on:
   push:
@@ -10,49 +10,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout code
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      # 2️⃣ Setup Node.js
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
-      # 3️⃣ Install dependencies
-      - name: Install dependencies
-        run: npm install
-
-      # 4️⃣ Build React app
-      - name: Build React app
-        run: npm run build
-
-      # 5️⃣ Setup SSH key
+      # 1️⃣ Setup SSH key
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      # 6️⃣ Build and deploy Docker on server
+      # 2️⃣ Build and deploy Docker on server
       - name: Build & Deploy Docker on Server
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} << 'EOF'
-            mkdir -p /home/${{ secrets.SSH_USER }}/deploy-app
-            cd /home/${{ secrets.SSH_USERNAME }}/deploy-app
-            # Clean old container
+            mkdir -p /home/${{ secrets.SSH_USERNAME }}/deploy-app
+            cd /home/${{ secrets.SSH_USER }}/deploy-app
+
+            # Stop old container & remove old image
             docker stop react-devops-app || true
             docker rm react-devops-app || true
             docker rmi react-devops-app:latest || true
           EOF
 
-          # Copy only build folder and Dockerfile
-          scp -i ~/.ssh/id_rsa -r build Dockerfile ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USERNAME }}/deploy-app/
+          # Copy Dockerfile and project files
+          scp -i ~/.ssh/id_rsa -r ./* ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/deploy-app/
 
-          # Build and run Docker container
+          # Build and run Docker container on server
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} << 'EOF'
-            cd /home/${{ secrets.SSH_USERNAME }}/deploy-app
+            cd /home/${{ secrets.SSH_USER }}/deploy-app
             docker build -t react-devops-app:latest .
             docker run -d -p 8080:80 --name react-devops-app react-devops-app:latest
           EOF
