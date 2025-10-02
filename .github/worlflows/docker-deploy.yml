@@ -1,4 +1,4 @@
-name: React Docker CI/CD
+name: Deploy React App via SSH
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,16 +24,34 @@ jobs:
       - name: Build React app
         run: npm run build
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build and Push Docker Image
+      - name: Copy PEM key
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/react-devops-app:latest .
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/react-devops-app:latest
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Deploy via SSH
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            cd /home/your-user/deploy-app || mkdir -p /home/your-user/deploy-app && cd /home/your-user/deploy-app
+            docker stop react-devops-app || true
+            docker rm react-devops-app || true
+            docker rmi react-devops-app:latest || true
+          EOF
+
+      - name: Copy files & Build Docker remotely
+        uses: appleboy/scp-action@v0.1.6
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "."
+          target: "/home/${{ secrets.SSH_USER }}/deploy-app"
+
+      - name: Run Docker on Server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            cd /home/your-user/deploy-app
+            docker build -t react-devops-app:latest .
+            docker run -d -p 8080:80 --name react-devops-app react-devops-app:latest
+          EOF
